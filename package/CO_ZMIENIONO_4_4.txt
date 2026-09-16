@@ -1,0 +1,14 @@
+Course Archiver & Transcriber 4.4.0
+
+Wersja 4.4 usuwa problem uruchamiania instalatora bezpośrednio z ZIP-a.
+01_INSTALUJ.cmd jest samorozpakowującym launcherem: zawiera pełny payload,
+kopiuje go do stabilnego katalogu w LocalAppData i dopiero stamtąd uruchamia
+bootstrap.py.
+
+Naprawiany błąd z 4.3:
+can't open file ...\Temp\...zip...\bootstrap.py: [Errno 2]
+
+Dodatkowo:
+- log powstaje przed ekstrakcją,
+- wymagane pliki są weryfikowane po ekstrakcji,
+- finalny CourseArchiver_Setup_4.4.0.exe jest kopiowany do Pobrane.

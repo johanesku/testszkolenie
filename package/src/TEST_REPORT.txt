@@ -1,0 +1,32 @@
+Course Archiver & Transcriber — build/test report
+Build date: 2026-09-16 (4.6.0)
+
+Tests executed in the build environment:
+[PASS] app.pyw Python bytecode compilation
+[PASS] agent_generic.py Python bytecode compilation
+[PASS] native_host.py Python bytecode compilation
+[PASS] self_test.py / postinstall_test.py Python bytecode compilation
+[PASS] Chrome extension manifest JSON parsing
+[PASS] Manifest V3 = 3
+[PASS] nativeMessaging permission present
+[PASS] Extension public-key -> deterministic ID: dfmedhencldblnhceamhppjklgomoffk
+[PASS] popup.js JavaScript syntax check (Node)
+[PASS] extension package references popup.html + popup.js correctly
+[PASS] Native Messaging 4-byte little-endian framing round-trip
+[PASS] native_host.py responds to {cmd: status} with ok=true and profiles array
+[PASS] session_events.py Python bytecode compilation
+[PASS] login event protocol round-trip (format/parse/describe)
+[PASS] stdout chunk-split resilience for the login_ok event
+[PASS] persistent session marker write/read
+[PASS] GUI status state machine executed against real app.pyw methods
+
+Windows installation includes an additional automatic post-install test:
+- Chrome Native Messaging manifest exists
+- registry HKCU native-host entry points to that manifest
+- native-host EXE exists
+- native-host EXE responds correctly to a framed status request
+- MSS detects at least one physical monitor
+- audio output enumeration is attempted and reported
+
+Environment limitation of this build session:
+A physical Windows workstation with two displays and a logged-in Chrome UI is not available here, so the final physical dual-monitor capture and Chrome UI click-through cannot be executed in this build environment. setup_windows.ps1 therefore runs the Windows-specific bridge/monitor checks automatically on the target laptop.

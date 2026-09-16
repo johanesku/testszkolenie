@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Course Archiver Connector",
+  "version": "1.1.0",
+  "description": "Przekazuje bieżącą kartę Chrome do lokalnej aplikacji Course Archiver & Transcriber.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnteXD1yqDkS10lSpd8gOYWbcPfAWpSThbCM+3HVS7stNB20OvhgBo085BHndcoT03WTEkCtEdww1/CfD/3BflSTOWD2KPLasUhbTlEB4wB199mVy/20g6IljEJPb2Ktude9xjf/CYdnasAdZBubzpcu53b36yPl3Ax4YK7/vfj7tOZKT6IVJDG+UUZJzQgx9QodtK0i4UgTqFemY9vD4j/ddZhsprVQ/0vMVvOIsJR5wgKwoVgjj1cuAH9ZkjLeVLizUJbJzmTf+9Fs+HBcx5jJJ5mnzfWfkbP29fotkjF/fhbK0ePTCzxtuJjkkn8RMqmmqNSpaouJc+vJD7eQm5QIDAQAB",
+  "permissions": ["activeTab", "tabs", "nativeMessaging"],
+  "action": {
+    "default_title": "Course Archiver Connector",
+    "default_popup": "popup.html"
+  }
+}

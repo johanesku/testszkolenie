@@ -1,0 +1,21 @@
+Course Archiver & Transcriber 4.6.0 - TEST REPORT
+
+PASS - Python syntax: bootstrap.py, app.pyw, agent_generic.py, native_host.py, session_events.py
+PASS - Chrome Manifest V3 and fixed extension ID
+PASS - Native Messaging installer wiring
+PASS - packaged GUI -> Agent wiring
+PASS - installer version consistency 4.6.0
+PASS - regression: cmd stdout log != Python bootstrap log
+PASS - bootstrap Logger fallback when preferred log cannot be opened
+PASS - Inno Setup output filename matches bootstrap expectation
+PASS - regression 4.6: no reuse of EXE built from older sources
+PASS - login event protocol format/parse/describe round-trip
+PASS - stdout buffering: login event survives any chunk split
+PASS - persistent session marker read/write
+PASS - agent reports login result (login_ok / login_required / failed)
+PASS - agent --after-login stage selection
+PASS - GUI status state machine executed for real (no PySide6 needed)
+PASS - one-click full run + automatic scan after login
+PASS - preserved features: dual monitor, local Chrome session, transcription, Chrome add-on
+
+Uwaga: finalna kompilacja EXE/Inno Setup jest wykonywana natywnie na Windows uzytkownika.

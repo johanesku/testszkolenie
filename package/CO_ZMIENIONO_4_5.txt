@@ -1,0 +1,16 @@
+Course Archiver & Transcriber 4.5.0
+
+Naprawa po logu z wersji 4.4:
+- Inno Setup zatrzymywal sie na CourseArchiver.iss, linia 63:
+  Type mismatch.
+- Przyczyna: StringChangeEx zwraca Integer (liczbe zamian), a skrypt probowal
+  przypisac ten wynik do zmiennej tekstowej Result.
+- Poprawka: najpierw Result := S, a potem StringChangeEx modyfikuje Result
+  przez parametr var.
+
+Dodatkowo wersja 4.5:
+- wykrywa kompletna budowe EXE pozostawiona przez nieudana probe 4.4,
+- jesli jest kompletna, wykorzystuje ja zamiast ponownie pobierac setki MB
+  bibliotek i kompilowac wszystkie EXE,
+- jesli starej budowy nie ma, automatycznie wykonuje pelna budowe od zera,
+- finalny instalator zapisuje w folderze Pobrane.

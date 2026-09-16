@@ -1,0 +1,137 @@
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+title Course Archiver & Transcriber - instalacja {{VERSION_SHORT}}
+chcp 65001 >nul 2>nul
+
+set "VERSION={{VERSION}}"
+set "LOGDIR=%LOCALAPPDATA%\CourseArchiverInstaller"
+set "LOG=%LOGDIR%\INSTALL_LOG.txt"
+set "STAGE=%LOCALAPPDATA%\CourseArchiverInstaller\staging\{{VERSION}}"
+set "B64=%TEMP%\CourseArchiver_{{VERSION_UNDERSCORE}}_payload.b64"
+set "ZIP=%TEMP%\CourseArchiver_{{VERSION_UNDERSCORE}}_payload.zip"
+
+if not exist "%LOGDIR%" mkdir "%LOGDIR%" >nul 2>nul
+>"%LOG%" echo ============================================================
+>>"%LOG%" echo Course Archiver and Transcriber - ONE CLICK launcher %VERSION%
+>>"%LOG%" echo Start: %DATE% %TIME%
+>>"%LOG%" echo Launcher: %~f0
+>>"%LOG%" echo Current folder: %CD%
+>>"%LOG%" echo User: %USERNAME%
+>>"%LOG%" echo ============================================================
+
+echo ============================================================
+echo   Course Archiver and Transcriber
+echo   INSTALACJA AUTOMATYCZNA - wersja %VERSION%
+echo ============================================================
+echo.
+echo Nie musisz instalowac niczego recznie.
+echo Wersja {{VERSION_SHORT}} buduje aplikacje od nowa, poniewaz zmienil sie kod GUI
+echo i agenta (widoczny status ZALOGOWANO po udanym logowaniu).
+echo.
+
+call :log "[0/4] Przygotowuje katalog roboczy..."
+if exist "%STAGE%" rmdir /s /q "%STAGE%" >>"%LOG%" 2>&1
+mkdir "%STAGE%" >>"%LOG%" 2>&1
+if errorlevel 1 goto :stage_error
+
+call :log "[1/4] Rozpakowuje wbudowany instalator..."
+del /q "%B64%" "%ZIP%" >nul 2>nul
+
+for /f "usebackq tokens=1,* delims=:" %%A in (`findstr /b /c:"PAYLOAD:" "%~f0"`) do (
+  >>"%B64%" echo(%%B
+)
+
+if not exist "%B64%" goto :extract_error
+for %%F in ("%B64%") do if %%~zF LSS 1000 goto :extract_error
+
+certutil.exe -f -decode "%B64%" "%ZIP%" >>"%LOG%" 2>&1
+if errorlevel 1 goto :decode_error
+
+where tar.exe >>"%LOG%" 2>&1
+if not errorlevel 1 (
+  tar.exe -xf "%ZIP%" -C "%STAGE%" >>"%LOG%" 2>&1
+) else (
+  call :log "tar.exe nie znaleziony. Uzywam awaryjnego mechanizmu Windows."
+  set "VBS=%TEMP%\CourseArchiver_unzip_{{VERSION_UNDERSCORE}}.vbs"
+  >"!VBS!" echo Set sh = CreateObject("Shell.Application"^)
+  >>"!VBS!" echo Set src = sh.NameSpace(WScript.Arguments(0^)^)
+  >>"!VBS!" echo Set dst = sh.NameSpace(WScript.Arguments(1^)^)
+  >>"!VBS!" echo If src Is Nothing Or dst Is Nothing Then WScript.Quit 2
+  >>"!VBS!" echo dst.CopyHere src.Items, 20
+  >>"!VBS!" echo WScript.Sleep 5000
+  cscript.exe //nologo "!VBS!" "%ZIP%" "%STAGE%" >>"%LOG%" 2>&1
+  del /q "!VBS!" >nul 2>nul
+)
+
+if not exist "%STAGE%\bootstrap.py" goto :missing_payload
+if not exist "%STAGE%\worker_install.cmd" goto :missing_payload
+if not exist "%STAGE%\installer\CourseArchiver.iss" goto :missing_payload
+
+call :log "[2/4] Pakiet gotowy."
+call :log "Katalog roboczy: %STAGE%"
+call :log "[3/4] Uruchamiam instalacje..."
+echo.
+echo Nie zamykaj tego okna.
+echo.
+
+set "COURSEARCHIVER_STAGED=1"
+call "%STAGE%\worker_install.cmd"
+set "RC=%ERRORLEVEL%"
+
+if not "%RC%"=="0" (
+  call :log "Instalator zakonczyl sie bledem. Kod: %RC%"
+  goto :failed
+)
+
+call :log "[4/4] Instalacja zakonczona powodzeniem."
+echo.
+echo ============================================================
+echo   GOTOWE
+echo ============================================================
+echo Course Archiver ^& Transcriber zostal zainstalowany.
+echo Finalny instalator zostal zapisany takze w folderze Pobrane.
+echo.
+pause
+exit /b 0
+
+:stage_error
+call :log "BLAD: Nie moge utworzyc katalogu roboczego."
+goto :failed
+
+:extract_error
+call :log "BLAD: Nie udalo sie odczytac wbudowanego pakietu."
+goto :failed
+
+:decode_error
+call :log "BLAD: Nie udalo sie rozpakowac wbudowanego pakietu."
+goto :failed
+
+:missing_payload
+call :log "BLAD: W pakiecie brakuje wymaganych plikow."
+goto :failed
+
+:failed
+echo.
+echo ============================================================
+echo   BLAD INSTALACJI
+echo ============================================================
+echo Log:
+echo %LOG%
+echo.
+if exist "%USERPROFILE%\Desktop" copy /y "%LOG%" "%USERPROFILE%\Desktop\CourseArchiver_INSTALL_LOG.txt" >nul 2>nul
+start "" notepad.exe "%LOG%"
+pause
+exit /b 1
+
+:log
+set "MSG=%~1"
+echo %MSG%
+>>"%LOG%" echo %DATE% %TIME%  %MSG%
+exit /b 0
+
+goto :eof
+
+REM =================================================================
+REM WBUDOWANY PAYLOAD - NIE EDYTUJ
+REM SHA256: {{SHA256}}
+REM =================================================================

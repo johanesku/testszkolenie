@@ -1,0 +1,20 @@
+Course Archiver & Transcriber 4.3.0
+
+POPRAWKA KRYTYCZNA LOGOWANIA
+===========================
+W 4.2 plik INSTALL_LOG.txt byl jednoczesnie:
+- otwarty przez cmd.exe jako cel przekierowania stdout/stderr, oraz
+- otwierany przez bootstrap.py do zapisu.
+Na Windows powodowalo to PermissionError / WinError 13.
+
+W 4.3:
+- cmd.exe zapisuje pelny przebieg do INSTALL_LOG.txt,
+- bootstrap.py zapisuje niezaleznie do BOOTSTRAP_LOG.txt,
+- oba logi sa kopiowane do folderu paczki,
+- Logger ma awaryjny fallback do %%TEMP%%, gdyby BOOTSTRAP_LOG byl blokowany.
+
+DODATKOWA POPRAWKA
+==================
+Ujednolicono wersje instalatora Inno Setup. W 4.2 bootstrap oczekiwal
+CourseArchiver_Setup_4.2.0.exe, ale plik .iss nadal generowal 4.1.0.
+W 4.3 wszystkie komponenty maja wersje 4.3.0.

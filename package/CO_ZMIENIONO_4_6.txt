@@ -1,0 +1,62 @@
+Course Archiver & Transcriber 4.6.0
+
+PROBLEM ZGLOSZONY W 4.5
+-----------------------
+Po kliknieciu "1. Zaloguj sie" i poprawnym zalogowaniu agent zapisywal sesje
+i konczyl prace. GUI pokazywalo wylacznie "KONIEC (kod 0)", wiec uzytkownik
+mial wrazenie, ze aplikacja nic nie zrobila i nie wiedzial, co dalej.
+
+Przyczyny w kodzie 4.5:
+- agent_generic.py: tryb --login-only konczyl sie linia
+  log("Sesja logowania zapisana lokalnie.") i zamykal przegladarke,
+- manual_login(): gdy sesja byla juz aktywna, funkcja wychodzila przez
+  "if not looks_like_login(page): return" - bez ani jednego komunikatu,
+- app.pyw: GUI nie mialo zadnego wskaznika stanu, tylko surowe okno logu.
+
+CO ZMIENIONO W 4.6
+------------------
+1. Nowy modul src/session_events.py - wspolny protokol zdarzen agent -> GUI
+   (linie "@@CA_EVENT {...}" na stdout) oraz trwaly znacznik stanu sesji.
+
+2. agent_generic.py:
+   - login_stage() zastepuje ciche wyjscie: doprowadza do zalogowania,
+     POTWIERDZA sesje na stronie startowej (verify_session) i zapisuje
+     znacznik "zalogowano" dla profilu,
+   - manual_login() zwraca informacje, czy sesja byla juz aktywna, i pisze
+     o tym wprost w logu,
+   - agent wysyla zdarzenia: login_required, login_ok, scan_start, scan_done,
+     process_start, lesson_done, finished, failed,
+   - nowy przelacznik --after-login {stop,discover,process}: po udanym
+     logowaniu agent moze przejsc dalej w TEJ SAMEJ przegladarce, bez
+     ponownego otwierania Chrome,
+   - bledy konczace prace daja kod wyjscia 1 i zdarzenie failed.
+
+3. app.pyw:
+   - duzy, kolorowy pasek statusu: "Sesja nieznana" / "LOGOWANIE" /
+     "ZALOGOWANO" / komunikat bledu,
+   - druga linia pokazuje biezacy etap (skanowanie, materiał 3/20 itd.),
+   - status "ZALOGOWANO" jest pamietany miedzy uruchomieniami aplikacji
+     (znacznik sesji na profil portalu),
+   - opcja "Po udanym logowaniu automatycznie skanuj kurs" (domyslnie wlaczona),
+   - nowy przycisk "ZROB WSZYSTKO" uruchamia caly proces jednym kliknieciem,
+   - gdy automatyczne przejscie jest wylaczone, aplikacja po zalogowaniu
+     pyta, czy uruchomic skanowanie.
+
+4. bootstrap.py:
+   - usunieto ponowne wykorzystanie plikow EXE z prob 4.4/4.5. W 4.6 zmienil
+     sie kod GUI i agenta, wiec stare EXE wgralyby wersje bez poprawki.
+     Budowa aplikacji wykonuje sie zawsze od nowa.
+   - session_events.py jest wymagany w paczce i dolaczany do obu plikow EXE.
+
+CZEGO NIE ZMIENIONO
+-------------------
+Bez zmian dzialaja: wybor monitora i nagrywanie z drugiego ekranu, lokalna
+sesja Chrome (channel="chrome", profil trwaly), pobieranie mediow i fallback
+nagrywania, transkrypcja faster-whisper, host Native Messaging i rozszerzenie
+Chrome (ten sam staly Extension ID).
+
+TESTY
+-----
+tests/test_login_flow.py - 10 testow przeplywu logowania, w tym realne
+wykonanie maszyny stanow GUI bez PySide6 oraz test, ze zdarzenie
+"zalogowano" nie ginie przy dowolnym podziale strumienia stdout.
