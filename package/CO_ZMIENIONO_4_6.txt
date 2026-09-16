@@ -80,6 +80,24 @@ Odtwarzanie materialu po kolei, nagrywanie ekranu z dzwiekiem i transkrypcja
 poprawki sprawiaja, ze etap w ogole do nich dochodzi. Materialy z DRM sa nadal
 oznaczane jako chronione i pomijane; aplikacja nie obchodzi zabezpieczen.
 
+NOWY INTERFEJS (4.6.2)
+----------------------
+GUI przebudowane wedlug zaprojektowanych makiet:
+- ciemny motyw (spojny jezyk wizualny, jeden akcent turkusowy),
+- lewy sidebar z lista profili portali i kropka statusu sesji przy kazdym,
+- naglowek z nazwa portalu, chipem statusu i przyciskiem "Zrob wszystko",
+- duzy kolorowy pasek statusu + linia biezacego etapu,
+- zakladki konfiguracji jak dotad (Podstawowe, Transkrypcja, Wykrywanie,
+  Nagrywanie/2 monitory, Zaawansowane),
+- na dole: zywa lista MATERIALY (kazdy z koncowym statusem i kolorem)
+  obok DZIENNIKA,
+- osobny widok "Archiwum lokalne": drzewo portal -> kategoria -> material
+  czytane z index.json + podglad transkrypcji wybranego materialu.
+
+Cala logika (agent, zdarzenia, profile, sesja, dwa monitory, transkrypcja,
+dodatek Chrome) pozostaje bez zmian — zmienila sie tylko warstwa wizualna.
+Przetestowano headless (offscreen) na prawdziwych widgetach Qt.
+
 TESTY
 -----
 tests/test_login_flow.py - 10 testow przeplywu logowania, w tym realne

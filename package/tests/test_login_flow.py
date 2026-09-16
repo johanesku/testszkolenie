@@ -153,6 +153,8 @@ class FakeWindow:
     def read_output(self): pass
     def flush_output(self): pass
     def refresh_session_status(self): self.status = ("idle", "Sesja nieznana")
+    def material_reset(self, total): self.materials = []
+    def material_add(self, evt): self.materials.append(evt)
     def set_running(self, running): self.running = running
     def start_agent(self, mode, persist=True): self.started.append(mode)
 
@@ -286,6 +288,22 @@ def test_playback_record_transcribe_present():
     print("PASS odtwarzanie → nagrywanie → transkrypcja (DRM pomijany)")
 
 
+def test_gui_dark_sidebar_shell():
+    """Nowa warstwa wizualna z makiet: ciemny motyw, sidebar, archiwum."""
+    assert "DARK_QSS" in APP
+    assert "app.setStyleSheet(DARK_QSS)" in APP
+    assert "def build_sidebar(" in APP
+    assert "self.profile_list = QListWidget(" in APP
+    assert "def build_archive_page(" in APP
+    assert "def refresh_archive(" in APP
+    assert "self.material_list" in APP
+    assert "def switch_view(" in APP
+    # Profil wybierany w liście sidebaru, nie w combo.
+    assert "profile_combo" not in APP
+    assert "def current_profile_name(" in APP
+    print("PASS ciemny sidebar + archiwum (makiety w aplikacji)")
+
+
 def test_existing_features_preserved():
     """Dwa monitory, lokalna sesja Chrome, transkrypcja, dodatek Chrome."""
     for needle in ("record_monitor", "resolve_monitor_spec", "ScreenAudioRecorder",
@@ -312,6 +330,7 @@ def main():
     test_gui_shows_status()
     test_gui_one_click_and_auto_scan()
     test_gui_status_state_machine()
+    test_gui_dark_sidebar_shell()
     test_login_detection_is_robust()
     test_agent_forces_utf8_output()
     test_playback_record_transcribe_present()
