@@ -250,6 +250,42 @@ def test_gui_status_state_machine():
     print("PASS maszyna stanów statusu GUI (wykonana realnie)")
 
 
+def test_login_detection_is_robust():
+    """Regresja: pojedyncze pole hasła na podstronie NIE może znaczyć „logowanie"."""
+    # Samo pole hasła (bez pola loginu, poza adresem logowania) nie wystarcza —
+    # inaczej strony konta WooCommerce dawały fałszywe „Sesja wygasła".
+    assert "input[type=\"password\"]:visible" in AGENT
+    assert "def session_lost(" in AGENT
+    assert "companion" in AGENT
+    # Stara, nadwrażliwa reguła nie może wrócić.
+    assert "if page.locator('input[type=\"password\"]').count()>0:return True" not in AGENT
+    # Skanowanie i przetwarzanie muszą re-weryfikować, zanim zerwą przebieg.
+    assert "if session_lost(page,start):raise" in AGENT
+    assert "if session_lost(page,cfg[\"start_url\"]):raise" in AGENT
+    print("PASS odporna detekcja logowania (brak fałszywego „sesja wygasła")
+
+
+def test_agent_forces_utf8_output():
+    """Regresja: polskie znaki docierały do GUI jako „�" (stdout nie był UTF-8)."""
+    assert "def configure_console(" in AGENT
+    assert 'reconfigure(encoding="utf-8"' in AGENT
+    assert "configure_console()" in AGENT  # wywołane w main()
+    # GUI dodatkowo wymusza UTF-8 w środowisku procesu agenta.
+    assert 'env.insert("PYTHONUTF8", "1")' in APP
+    assert "QProcessEnvironment" in APP
+    print("PASS agent wymusza UTF-8 (brak zniekształconych polskich znaków)")
+
+
+def test_playback_record_transcribe_present():
+    """Legalny łańcuch: odtwórz → nagraj ekran+audio → transkrybuj."""
+    for needle in ("def record_fallback(", "def try_play(", "ScreenAudioRecorder",
+                   "detect_drm", "class Transcriber"):
+        assert needle in AGENT, needle
+    # Materiały z DRM pozostają pomijane — bez obchodzenia zabezpieczeń.
+    assert "protected" in AGENT
+    print("PASS odtwarzanie → nagrywanie → transkrypcja (DRM pomijany)")
+
+
 def test_existing_features_preserved():
     """Dwa monitory, lokalna sesja Chrome, transkrypcja, dodatek Chrome."""
     for needle in ("record_monitor", "resolve_monitor_spec", "ScreenAudioRecorder",
@@ -276,6 +312,9 @@ def main():
     test_gui_shows_status()
     test_gui_one_click_and_auto_scan()
     test_gui_status_state_machine()
+    test_login_detection_is_robust()
+    test_agent_forces_utf8_output()
+    test_playback_record_transcribe_present()
     test_existing_features_preserved()
     print("\nWSZYSTKIE TESTY PRZEPŁYWU LOGOWANIA: PASS")
 

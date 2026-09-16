@@ -10,7 +10,7 @@ from pathlib import Path
 import mss
 import soundcard as sc
 import yaml
-from PySide6.QtCore import QProcess, QTimer, QUrl
+from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
@@ -368,6 +368,9 @@ class MainWindow(QMainWindow):
         self.error_reported = False
         self.splitter = ev.OutputSplitter()
         self.proc = QProcess(self); self.proc.setProgram(program); self.proc.setArguments(args); self.proc.setWorkingDirectory(workdir); self.proc.setProcessChannelMode(QProcess.MergedChannels)
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONUTF8", "1"); env.insert("PYTHONIOENCODING", "utf-8")
+        self.proc.setProcessEnvironment(env)
         self.proc.readyReadStandardOutput.connect(self.read_output); self.proc.finished.connect(self.finished)
         self.log.appendPlainText("\n===== START =====")
         self.set_status("busy", "Uruchamiam Chrome… za chwilę otworzy się okno przeglądarki.")

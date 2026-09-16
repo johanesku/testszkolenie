@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import unicodedata
+import warnings
 import wave
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -33,6 +34,23 @@ STREAM_EXTS = (".m3u8", ".mpd")
 LESSON_HINTS = ("lesson", "lekcja", "module", "modul", "chapter", "training", "video", "course", "kurs", "material", "topic", "session", "webinar", "recording")
 
 LOGIN_TIMEOUT_SECONDS = 600
+
+
+def configure_console():
+    """Wymuś UTF-8 na stdout/stderr agenta.
+
+    Na Windows domyślnym kodowaniem stdout jest strona kodowa konsoli
+    (cp852/cp1250), więc polskie znaki docierały do GUI jako „�" (GUI dekoduje
+    strumień jako UTF-8). reconfigure() rozwiązuje to także dla spakowanego EXE.
+    Dodatkowo wyciszamy DeprecationWarning, żeby ostrzeżenia bibliotek nie
+    zaśmiecały dziennika widocznego dla użytkownika.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def log(msg=""):
@@ -123,11 +141,61 @@ class State:
         self.path.write_text(json.dumps(self.data,ensure_ascii=False,indent=2),encoding="utf-8")
 
 
-def looks_like_login(page:Page):
+LOGIN_URL_HINTS = ("/login", "/signin", "/sign-in", "/auth", "wp-login", "/logowanie", "/zaloguj")
+
+
+def looks_like_login(page:Page)->bool:
+    """True tylko wtedy, gdy strona jest REALNĄ ścianą logowania.
+
+    Samo pole hasła nie wystarcza. Strony zalogowanego użytkownika często je
+    zawierają: zmiana hasła, widget „moje konto", stopka WooCommerce, formularz
+    dostępu do pojedynczej lekcji. Traktowanie ich jak ekranu logowania kończyło
+    się fałszywym „Sesja wygasła" przy poprawnie zalogowanej sesji.
+
+    Ściana logowania to WIDOCZNE pole hasła razem z widocznym polem loginu/e-mail,
+    albo adres logowania z formularzem zawierającym hasło.
+    """
     try:
-        if page.locator('input[type="password"]').count()>0:return True
-        u=page.url.lower(); return any(x in u for x in ("/login","/signin","/sign-in","/auth")) and page.locator("form").count()>0
-    except Exception:return False
+        u = page.url.lower()
+        on_login_url = any(x in u for x in LOGIN_URL_HINTS)
+
+        visible_pw = page.locator('input[type="password"]:visible')
+        if visible_pw.count() > 0:
+            companion = page.locator(
+                'input[type="email"]:visible, '
+                'input[type="text"][name*="log" i]:visible, '
+                'input[name*="user" i]:visible, '
+                'input[name*="email" i]:visible, '
+                'input[autocomplete="username"]:visible'
+            )
+            # Widoczne hasło + pole loginu = logowanie. Samo hasło na adresie
+            # logowania też, ale samo hasło na zwykłej podstronie — nie.
+            if companion.count() > 0 or on_login_url:
+                return True
+
+        # Przekierowanie na adres logowania z formularzem hasła, nawet gdy pole
+        # jest chwilowo ukryte (modal, lazy-render).
+        if on_login_url and page.locator('form input[type="password"]').count() > 0:
+            return True
+
+        return False
+    except Exception:
+        return False
+
+
+def session_lost(page:Page, start_url)->bool:
+    """Potwierdź utratę sesji, zanim zerwiemy przebieg.
+
+    Pojedyncza podstrona z polem hasła nie oznacza wylogowania. Sesja żyje tak
+    długo, jak strona startowa kursu nie jest ścianą logowania — sprawdzamy to
+    wprost, wracając na nią.
+    """
+    try:
+        page.goto(start_url, wait_until="domcontentloaded", timeout=90000)
+        page.wait_for_timeout(600)
+    except Exception:
+        pass
+    return looks_like_login(page)
 
 
 def manual_login(page:Page,start_url)->bool:
@@ -276,7 +344,10 @@ def discover_lessons(page:Page,cfg,out_dir:Path):
         seen.add(url)
         try:page.goto(url,wait_until="domcontentloaded",timeout=90000);page.wait_for_timeout(700)
         except Exception as e:log(f"[WARN] {url}: {e}");continue
-        if looks_like_login(page):raise RuntimeError("Sesja wygasła podczas skanowania.")
+        if looks_like_login(page):
+            if session_lost(page,start):raise RuntimeError("Sesja wygasła podczas skanowania. Zaloguj się ponownie.")
+            log(f"[WARN] Pomijam podstronę z formularzem logowania (sesja nadal aktywna): {url}")
+            continue
         title=extract_title(page,urlparse(page.url).path.rsplit('/',1)[-1] or "Materiał")
         category=extract_category(page,page.url)
         items=link_candidates(page,cfg)
@@ -673,7 +744,10 @@ def process(ctx,page,cfg,out,lessons,state):
         log(f"\n=== [{idx}/{len(lessons)}] {l.title} ===")
         try:
             page.goto(l.url,wait_until="domcontentloaded",timeout=90000);page.wait_for_timeout(900)
-            if looks_like_login(page):raise RuntimeError("Sesja logowania wygasła.")
+            if looks_like_login(page):
+                if session_lost(page,cfg["start_url"]):raise RuntimeError("Sesja logowania wygasła.")
+                # session_lost nawigował na stronę startową; wróć na lekcję (fałszywy alarm).
+                page.goto(l.url,wait_until="domcontentloaded",timeout=90000);page.wait_for_timeout(700)
             # Aktualizacja tytułu/kategorii po wejściu w lekcję.
             l.title=extract_title(page,l.title);l.category=extract_category(page,page.url);catdir=out/safe_name(l.category);ldir=catdir/f"{l.order:03d}_{safe_name(l.title)}";ldir.mkdir(parents=True,exist_ok=True)
             media=None;protected=False;notes=[]
@@ -753,6 +827,7 @@ def run_agent(args)->None:
 
 
 def main():
+    configure_console()
     ap=argparse.ArgumentParser();ap.add_argument("--config",required=True);ap.add_argument("--login-only",action="store_true");ap.add_argument("--discover-only",action="store_true")
     ap.add_argument("--after-login",choices=[STAGE_STOP,ev.STAGE_DISCOVER,ev.STAGE_PROCESS],default=None,help="Co zrobić po udanym logowaniu w trybie --login-only.")
     ap.add_argument("--reset-state",action="store_true");args=ap.parse_args()

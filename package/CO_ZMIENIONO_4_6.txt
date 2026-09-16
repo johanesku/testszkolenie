@@ -55,6 +55,31 @@ sesja Chrome (channel="chrome", profil trwaly), pobieranie mediow i fallback
 nagrywania, transkrypcja faster-whisper, host Native Messaging i rozszerzenie
 Chrome (ten sam staly Extension ID).
 
+POPRAWKI 4.6.1 (po zgłoszeniu z logu)
+-------------------------------------
+1. Fałszywe "Sesja wygasla podczas skanowania" mimo statusu ZALOGOWANO.
+   Przyczyna: looks_like_login() uznawal KAZDE pole <input type=password>
+   na dowolnej podstronie za ekran logowania. Portale WooCommerce (jak
+   instytutkryptografii.pl) maja pola hasla na podstronach konta takze u
+   zalogowanego uzytkownika, wiec skan zrywal poprawna sesje.
+   - looks_like_login() wymaga teraz WIDOCZNEGO pola hasla razem z polem
+     loginu/e-mail, albo adresu logowania z formularzem hasla.
+   - Nowe session_lost() potwierdza utrate sesji, wracajac na strone
+     startowa kursu, zanim przebieg zostanie zerwany. Pojedyncza podstrona
+     z formularzem jest pomijana, a skan trwa dalej.
+
+2. Polskie znaki w dzienniku GUI wyswietlaly sie jako "�" (np. "wygas�a").
+   Przyczyna: stdout agenta na Windows uzywal strony kodowej konsoli, a GUI
+   dekoduje strumien jako UTF-8.
+   - agent wymusza UTF-8 na stdout/stderr (configure_console), takze w EXE,
+   - GUI ustawia PYTHONUTF8=1 / PYTHONIOENCODING=utf-8 w srodowisku agenta,
+   - wyciszono DeprecationWarning zasmiecajace dziennik.
+
+Odtwarzanie materialu po kolei, nagrywanie ekranu z dzwiekiem i transkrypcja
+(record_fallback) dzialaly juz wczesniej dla materialow bez DRM — powyzsze
+poprawki sprawiaja, ze etap w ogole do nich dochodzi. Materialy z DRM sa nadal
+oznaczane jako chronione i pomijane; aplikacja nie obchodzi zabezpieczen.
+
 TESTY
 -----
 tests/test_login_flow.py - 10 testow przeplywu logowania, w tym realne
