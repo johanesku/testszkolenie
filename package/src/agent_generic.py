@@ -335,7 +335,9 @@ def lesson_score(item,cfg,start_url):
 
 def discover_lessons(page:Page,cfg,out_dir:Path):
     start=canonical(cfg["start_url"]); queue=[(start,0)]; seen=set(); found={}; maxn=int(cfg["max_lessons"]); depthmax=int(cfg.get("crawl_depth",3)); order=0
-    debug_dir=out_dir/"_debug"; debug_dir.mkdir(parents=True,exist_ok=True) if cfg.get("debug") else None
+    debug_dir=None
+    if cfg.get("debug"):
+        debug_dir=out_dir/"_debug"; debug_dir.mkdir(parents=True,exist_ok=True)
     log("\n=== SKANOWANIE STRUKTURY ===")
     emit(ev.EVENT_SCAN_START,start_url=start)
     while queue and len(found)<maxn:

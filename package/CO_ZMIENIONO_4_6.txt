@@ -80,6 +80,20 @@ Odtwarzanie materialu po kolei, nagrywanie ekranu z dzwiekiem i transkrypcja
 poprawki sprawiaja, ze etap w ogole do nich dochodzi. Materialy z DRM sa nadal
 oznaczane jako chronione i pomijane; aplikacja nie obchodzi zabezpieczen.
 
+POPRAWKA 4.6.3 (crash skanowania przy wylaczonym debugu)
+--------------------------------------------------------
+Skanowanie przerywalo sie bledem:
+  [Errno 2] No such file or directory: ...\_debug\page_0001.json
+mimo ze diagnostyka byla wylaczona.
+
+Przyczyna: debug_dir bylo zawsze ustawiane na out_dir/"_debug" (Path jest
+zawsze truthy), wiec strażnik `if debug_dir:` zawsze przechodzil i probowal
+zapisac plik do katalogu _debug, ktory powstawal tylko przy wlaczonym debugu.
+
+Poprawka: debug_dir = None, gdy debug wylaczony; katalog i zapis tylko gdy
+diagnostyka jest wlaczona.
+
+
 NOWY INTERFEJS (4.6.2)
 ----------------------
 GUI przebudowane wedlug zaprojektowanych makiet:

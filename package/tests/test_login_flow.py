@@ -267,6 +267,16 @@ def test_login_detection_is_robust():
     print("PASS odporna detekcja logowania (brak fałszywego „sesja wygasła")
 
 
+def test_scan_debug_dir_guarded():
+    """Regresja: skan zapisywał do _debug nawet przy wyłączonym debugu (Errno 2)."""
+    # debug_dir musi być None, gdy debug wyłączony — Path jest zawsze truthy,
+    # więc stary jednolinijkowiec zawsze przechodził `if debug_dir:` i pisał do
+    # nieistniejącego katalogu _debug.
+    assert "debug_dir=None" in AGENT
+    assert 'debug_dir=out_dir/"_debug"; debug_dir.mkdir(parents=True,exist_ok=True) if cfg.get("debug") else None' not in AGENT
+    print("PASS skan nie pisze do _debug przy wyłączonym debugu")
+
+
 def test_agent_forces_utf8_output():
     """Regresja: polskie znaki docierały do GUI jako „�" (stdout nie był UTF-8)."""
     assert "def configure_console(" in AGENT
@@ -332,6 +342,7 @@ def main():
     test_gui_status_state_machine()
     test_gui_dark_sidebar_shell()
     test_login_detection_is_robust()
+    test_scan_debug_dir_guarded()
     test_agent_forces_utf8_output()
     test_playback_record_transcribe_present()
     test_existing_features_preserved()
