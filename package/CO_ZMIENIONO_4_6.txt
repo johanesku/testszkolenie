@@ -80,6 +80,27 @@ Odtwarzanie materialu po kolei, nagrywanie ekranu z dzwiekiem i transkrypcja
 poprawki sprawiaja, ze etap w ogole do nich dochodzi. Materialy z DRM sa nadal
 oznaczane jako chronione i pomijane; aplikacja nie obchodzi zabezpieczen.
 
+POPRAWKA 4.6.4 (Smart App Control blokuje instalator)
+------------------------------------------------------
+Po udanej budowie instalator konczyl sie bledem:
+  [WinError 4551] Zasady kontroli aplikacji zablokowaly ten plik
+przy uruchamianiu swiezo zbudowanego CourseArchiver_Setup_4.6.0.exe.
+
+Przyczyna: Smart App Control w Windows 11 blokuje niepodpisane pliki EXE
+bez reputacji. To zabezpieczenie systemu, nie blad aplikacji - budowa
+przebiega poprawnie, a gotowy instalator trafia do folderu Pobrane.
+
+Instalator obsluguje teraz ten przypadek:
+- przechwytuje WinError 4551 zamiast konczyc sie tracebackiem,
+- przechodzi na TRYB PRZENOSNY: kopiuje juz zbudowana aplikacje do
+  %LOCALAPPDATA%\\Programs, konfiguruje mostek Chrome (Native Messaging)
+  i tworzy skroty - bez uruchamiania zablokowanego Setup.exe,
+- jesli Windows blokuje takze pierwsze uruchomienie aplikacji, wyswietla
+  jasna instrukcje (Smart App Control -> Wylacz).
+
+Trwale rozwiazanie to podpisanie plikow EXE certyfikatem code-signing.
+
+
 POPRAWKA 4.6.3 (crash skanowania przy wylaczonym debugu)
 --------------------------------------------------------
 Skanowanie przerywalo sie bledem:

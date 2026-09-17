@@ -22,6 +22,17 @@ CHROME_URL = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
 INNO_URL = "https://jrsoftware.org/download.php/is.exe"
 VCREDIST_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 
+EXTENSION_ID = "dfmedhencldblnhceamhppjklgomoffk"
+
+# Windows Smart App Control / WDAC blokuje niepodpisane pliki EXE bez reputacji.
+# CreateProcess zwraca wtedy WinError 4551 ("Zasady kontroli aplikacji zablokowaly
+# ten plik"). To zabezpieczenie systemu, nie blad instalatora.
+APP_CONTROL_WINERRORS = {4551}
+APP_CONTROL_HINT = (
+    "Smart App Control (Windows 11) zablokowal uruchomienie swiezo zbudowanego, "
+    "niepodpisanego pliku. To zabezpieczenie systemu, nie blad aplikacji."
+)
+
 
 class InstallerError(RuntimeError):
     pass
@@ -374,15 +385,107 @@ def installed_app_candidates() -> list[Path]:
     return vals
 
 
-def install_final_app(log: Logger, setup: Path) -> Path:
+def wire_native_messaging(log: Logger, dest: Path):
+    """Zarejestruj mostek Chrome tak samo jak robi to instalator Inno."""
+    if os.name != "nt":
+        return
+    import json
+    import winreg
+    host = dest / "NativeHost" / "CourseArchiverNativeHost.exe"
+    manifest_dir = Path(os.environ["LOCALAPPDATA"]) / "CourseArchiver"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_dir / "com.coursearchiver.bridge.json"
+    manifest_path.write_text(json.dumps({
+        "name": "com.coursearchiver.bridge",
+        "description": "Local bridge for Course Archiver & Transcriber",
+        "path": str(host),
+        "type": "stdio",
+        "allowed_origins": [f"chrome-extension://{EXTENSION_ID}/"],
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Google\Chrome\NativeMessagingHosts\com.coursearchiver.bridge") as key:
+        winreg.SetValueEx(key, None, 0, winreg.REG_SZ, str(manifest_path))
+    log.line("Mostek Chrome (Native Messaging) skonfigurowany.")
+
+
+def create_shortcuts(log: Logger, app: Path):
+    if os.name != "nt":
+        return
+    targets = []
+    up = os.environ.get("USERPROFILE")
+    if up:
+        targets.append(Path(up) / "Desktop")
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        targets.append(Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs")
+    for folder in targets:
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            lnk = folder / f"{APP_NAME}.lnk"
+            ps = (
+                "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}');"
+                "$s.TargetPath='{tgt}';$s.WorkingDirectory='{wd}';$s.Save()"
+            ).format(lnk=str(lnk), tgt=str(app), wd=str(app.parent))
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+    log.line("Utworzono skroty na Pulpicie i w menu Start.")
+
+
+def portable_install(log: Logger, root: Path) -> Path:
+    """Wdroz aplikacje bez uruchamiania niepodpisanego instalatora EXE.
+
+    Uzywane, gdy Smart App Control zablokuje Setup.exe. Kopiuje juz zbudowane
+    pliki do %LOCALAPPDATA%\\Programs, konfiguruje mostek Chrome i skroty.
+    """
+    dist = root / "build" / "dist"
+    dest = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Programs" / "Course Archiver & Transcriber"
+    log.line(f"Tryb przenosny: kopiuje aplikacje do {dest}")
+    mapping = {"CourseArchiver": dest / "CourseArchiver", "CourseArchiverAgent": dest / "Agent", "NativeHost": dest / "NativeHost"}
+    for srcname, target in mapping.items():
+        source = dist / srcname
+        if not source.exists():
+            raise InstallerError(f"Brak zbudowanego katalogu: {source}")
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        shutil.copytree(source, target)
+    ext_src = root / "src" / "chrome_extension"
+    if ext_src.exists():
+        ext_dst = dest / "ChromeExtension"
+        if ext_dst.exists():
+            shutil.rmtree(ext_dst, ignore_errors=True)
+        shutil.copytree(ext_src, ext_dst)
+    app = dest / "CourseArchiver" / "CourseArchiver.exe"
+    try:
+        wire_native_messaging(log, dest)
+    except Exception as e:
+        log.line(f"[WARN] Nie udalo sie skonfigurowac mostka Chrome: {e}")
+    try:
+        create_shortcuts(log, app)
+    except Exception as e:
+        log.line(f"[WARN] Nie udalo sie utworzyc skrotow: {e}")
+    log.line("Tryb przenosny gotowy. Aplikacja zainstalowana bez uruchamiania Setup.exe.")
+    return app
+
+
+def install_final_app(log: Logger, setup: Path, root: Path) -> Path:
     log.line("Uruchamiam finalny instalator aplikacji. Windows moze pokazac jedno okno UAC - wybierz TAK.")
-    p = run(log, [setup, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"], check=False)
-    if p.returncode not in (0, 3010):
-        raise InstallerError(f"Finalny instalator zwrocil kod {p.returncode}. Jezeli anulowales UAC, uruchom instalacje ponownie.")
-    for app in installed_app_candidates():
-        if app.exists():
-            return app
-    raise InstallerError("Instalator zakonczyl prace, ale nie znaleziono zainstalowanej aplikacji.")
+    try:
+        p = run(log, [setup, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"], check=False)
+    except OSError as e:
+        if getattr(e, "winerror", None) in APP_CONTROL_WINERRORS:
+            log.line("")
+            log.line("[UWAGA] " + APP_CONTROL_HINT)
+            log.line("Przechodze na tryb przenosny (nie wymaga uruchamiania Setup.exe).")
+            return portable_install(log, root)
+        raise
+    if p.returncode in (0, 3010):
+        for app in installed_app_candidates():
+            if app.exists():
+                return app
+        log.line("[WARN] Instalator zakonczyl prace, ale nie znaleziono aplikacji. Uzywam trybu przenosnego.")
+        return portable_install(log, root)
+    raise InstallerError(f"Finalny instalator zwrocil kod {p.returncode}. Jezeli anulowales UAC, uruchom instalacje ponownie.")
 
 
 def cleanup_build(log: Logger, root: Path):
@@ -397,6 +500,16 @@ def launch_app(log: Logger, app: Path):
     try:
         subprocess.Popen([str(app)], cwd=str(app.parent), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         log.line("Aplikacja zostala uruchomiona.")
+    except OSError as e:
+        if getattr(e, "winerror", None) in APP_CONTROL_WINERRORS:
+            log.line("[UWAGA] " + APP_CONTROL_HINT)
+            log.line("Aplikacja zostala zainstalowana, ale Windows blokuje jej pierwsze uruchomienie.")
+            log.line("Aby ja uruchomic: Ustawienia > Prywatnosc i zabezpieczenia > Zabezpieczenia")
+            log.line("Windows > Kontrola aplikacji i przegladarki > Smart App Control > Wylacz,")
+            log.line("albo kliknij skrot na Pulpicie i wybierz 'Uruchom mimo to' jesli sie pojawi.")
+        else:
+            log.line(f"Nie udalo sie automatycznie uruchomic aplikacji: {e}")
+            log.line(f"Uruchom ja ze skrotu na pulpicie: {APP_NAME}")
     except Exception as e:
         log.line(f"Nie udalo sie automatycznie uruchomic aplikacji: {e}")
         log.line(f"Uruchom ja ze skrotu na pulpicie: {APP_NAME}")
@@ -489,7 +602,7 @@ def main() -> int:
             log.line(f"[WARN] Nie udalo sie skopiowac instalatora do Pobrane: {e}")
 
         stage(log, 8, total, "Instalacja i uruchomienie aplikacji")
-        app = install_final_app(log, setup)
+        app = install_final_app(log, setup, root)
         cleanup_build(log, root)
         launch_app(log, app)
 

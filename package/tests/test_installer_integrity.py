@@ -44,6 +44,14 @@ assert 'build_binaries(log, py, root)' in boot
 assert 'root / "src" / "session_events.py"' in boot
 assert boot.count('"--hidden-import", "session_events"') == 2
 
+# Regresja 4.6.4: Smart App Control blokuje niepodpisany Setup.exe (WinError 4551).
+# Instalator musi to obsluzyc trybem przenosnym, a nie crashowac tracebackiem.
+assert "APP_CONTROL_WINERRORS" in boot
+assert "4551" in boot
+assert "def portable_install(" in boot
+assert "def wire_native_messaging(" in boot
+assert "except OSError as e:" in boot  # przechwycenie blokady CreateProcess
+
 print("PASS installer version consistency", VERSION)
 print("PASS separate cmd/bootstrap log files")
 print("PASS logger fallback")
