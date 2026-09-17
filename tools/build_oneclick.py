@@ -78,13 +78,14 @@ Kliknij dwukrotnie:
 01_INSTALUJ.cmd
 
 Co nowego w {ver}:
-- Po udanym logowaniu aplikacja wyraznie pokazuje status ZALOGOWANO.
-- Mozesz wlaczyc automatyczne przejscie do skanowania kursu zaraz po logowaniu.
-- Nowy przycisk ZROB WSZYSTKO wykonuje caly proces jednym kliknieciem.
-- Pasek postepu pokazuje etap: logowanie, skanowanie, pobieranie, transkrypcja.
+- Inkrementalna budowa: komponenty bez zmian sa przywracane z pamieci
+  podrecznej, wiec kolejne instalacje trwaja sekundy zamiast dziesiatek minut.
+- Jesli Windows (Smart App Control) zablokuje instalator, aplikacja wdraza sie
+  w trybie przenosnym i pokazuje instrukcje.
+- Ciemny interfejs z lista profili, zywa lista materialow i widokiem Archiwum.
+- Widoczny status ZALOGOWANO i przycisk ZROB WSZYSTKO (caly proces jednym klikiem).
 
-Uwaga: ta wersja zawsze buduje aplikacje od nowa, poniewaz zmienil sie kod
-GUI i agenta. Pliki EXE z wersji 4.4/4.5 nie sa juz wykorzystywane ponownie.
+Pelna historia zmian: package/CHANGELOG.md
 
 W razie bledu:
 %LOCALAPPDATA%\\CourseArchiverInstaller\\INSTALL_LOG.txt

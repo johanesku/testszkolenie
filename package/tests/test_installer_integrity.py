@@ -4,7 +4,7 @@ from pathlib import Path
 import ast
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "4.6.0"
+VERSION = "4.7.0"
 
 boot = (ROOT / "bootstrap.py").read_text(encoding="utf-8")
 cmd = (ROOT / "worker_install.cmd").read_text(encoding="utf-8")
@@ -34,11 +34,11 @@ assert 'OutputBaseFilename=CourseArchiver_Setup_{#MyAppVersion}' in iss
 assert 'CourseArchiver_BOOTSTRAP_' in boot
 assert 'tempfile.gettempdir()' in boot
 
-# Regresja 4.6: nie wolno wgrać EXE zbudowanych z poprzedniej wersji zrodel,
-# bo instalator dostarczylby GUI bez poprawki statusu logowania.
+# Regresja 4.6: znika stare, ślepe ponowne użycie EXE po numerze wersji katalogu
+# (try_reuse_previous_build), które wgrywało nieaktualny kod. 4.7 używa cache
+# opartego na hashu źródeł+wersji, więc nigdy nie przywróci nieaktualnego pliku.
 assert 'try_reuse_previous_build' not in boot
-assert 'expected_dist_files' not in boot
-assert 'build_binaries(log, py, root)' in boot
+assert 'build_binaries(log, py, root, manifest, manifest_path)' in boot
 
 # Nowy wspolny modul musi byc wymagany i dolaczony do obu plikow EXE.
 assert 'root / "src" / "session_events.py"' in boot
@@ -52,7 +52,18 @@ assert "def portable_install(" in boot
 assert "def wire_native_messaging(" in boot
 assert "except OSError as e:" in boot  # przechwycenie blokady CreateProcess
 
+# 4.7.0: inkrementalna budowa i wdrożenie oparte na hashach komponentów.
+assert "def component_hash(" in boot
+assert "def build_binaries(log: Logger, py: Path, root: Path, manifest: dict" in boot
+assert "def deploy_incrementally(" in boot
+assert "build_manifest.json" in boot
+assert ".install_manifest.json" in boot
+# Cache budowy i venv żyją poza staging, żeby przetrwać między uruchomieniami.
+assert "def build_cache_dir(" in boot
+assert 'shutil.rmtree(p, ignore_errors=True)' in boot
+print("PASS Smart App Control -> tryb przenośny; inkrementalna budowa/wdrożenie")
+
 print("PASS installer version consistency", VERSION)
 print("PASS separate cmd/bootstrap log files")
 print("PASS logger fallback")
-print("PASS wymuszona swieza budowa EXE dla 4.6")
+print("PASS budowa oparta na hashu (bez ślepego reuse po numerze wersji)")

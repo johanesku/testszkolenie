@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import hashlib
+import json
 import os
 import platform
 import shutil
@@ -14,7 +16,7 @@ import traceback
 from pathlib import Path
 
 APP_NAME = "Course Archiver & Transcriber"
-APP_VERSION = "4.6.0"
+APP_VERSION = "4.7.0"
 MIN_FREE_GB = 8
 PYINSTALLER_REQ = "pyinstaller>=6.10,<7"
 
@@ -297,6 +299,100 @@ def check_platform(log: Logger, root: Path):
         raise InstallerError(f"Brak dostepu do Internetu wymaganego do pobrania skladnikow: {e}") from e
 
 
+# -------------------------------------------------------------------------
+# Inkrementalna budowa: komponent przebudowujemy tylko, gdy zmienil sie jego
+# kod zrodlowy, zaleznosci albo wersja aplikacji. Wynik jest cache'owany w
+# stabilnym katalogu i przywracany, gdy nic sie nie zmienilo - to skraca
+# kolejne uruchomienia z kilkudziesieciu minut do sekund.
+# -------------------------------------------------------------------------
+
+def builder_root() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir())) / "CourseArchiverBuilder"
+
+
+def build_cache_dir() -> Path:
+    return builder_root() / "cache"
+
+
+def build_venv_dir() -> Path:
+    return builder_root() / "buildvenv"
+
+
+def hash_files(paths) -> str:
+    h = hashlib.sha256()
+    for p in sorted((Path(x) for x in paths), key=str):
+        h.update(p.name.encode("utf-8"))
+        h.update(b"\0")
+        h.update(p.read_bytes() if p.exists() else b"<brak>")
+    return h.hexdigest()
+
+
+def hash_tree(directory: Path) -> str:
+    h = hashlib.sha256()
+    for p in sorted(directory.rglob("*"), key=lambda x: x.relative_to(directory).as_posix()):
+        if p.is_file():
+            h.update(p.relative_to(directory).as_posix().encode("utf-8"))
+            h.update(b"\0")
+            h.update(p.read_bytes())
+    return h.hexdigest()
+
+
+def load_manifest(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_manifest(path: Path, data: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def deps_signature(root: Path) -> str:
+    return hash_files([root / "src" / "requirements.txt"]) + ":" + hashlib.sha256(PYINSTALLER_REQ.encode()).hexdigest()[:12]
+
+
+def component_specs(root: Path) -> list[dict]:
+    src = root / "src"
+    return [
+        {
+            "name": "CourseArchiver", "dist_subdir": "CourseArchiver", "exe": "CourseArchiver.exe", "deps": True,
+            "sources": [src / "app.pyw", src / "session_events.py"],
+            "args": ["--onedir", "--windowed", "--name", "CourseArchiver",
+                     "--paths", src, "--hidden-import", "session_events",
+                     "--collect-all", "mss", "--collect-all", "soundcard", src / "app.pyw"],
+        },
+        {
+            "name": "CourseArchiverAgent", "dist_subdir": "CourseArchiverAgent", "exe": "CourseArchiverAgent.exe", "deps": True,
+            "sources": [src / "agent_generic.py", src / "session_events.py"],
+            "args": ["--onedir", "--console", "--name", "CourseArchiverAgent",
+                     "--paths", src, "--hidden-import", "session_events",
+                     "--collect-all", "playwright", "--collect-all", "faster_whisper", "--collect-all", "ctranslate2",
+                     "--collect-all", "tokenizers", "--collect-all", "huggingface_hub", "--collect-all", "imageio_ffmpeg",
+                     "--collect-all", "soundcard", "--collect-all", "mss", "--collect-all", "av", src / "agent_generic.py"],
+        },
+        {
+            "name": "NativeHost", "dist_subdir": "NativeHost", "exe": "CourseArchiverNativeHost.exe", "deps": False,
+            "sources": [src / "native_host.py"],
+            "args": ["--onefile", "--console", "--name", "CourseArchiverNativeHost", src / "native_host.py"],
+        },
+    ]
+
+
+def component_hash(spec: dict, deps_sig: str, version: str) -> str:
+    h = hashlib.sha256()
+    h.update(version.encode("utf-8")); h.update(b"|")
+    if spec.get("deps"):
+        h.update(deps_sig.encode("utf-8"))
+    h.update(b"|")
+    h.update(hash_files(spec["sources"]).encode("utf-8"))
+    h.update(b"|")
+    h.update("::".join(str(a) for a in spec["args"]).encode("utf-8"))
+    return h.hexdigest()
+
+
 def valid_venv_python(py: Path) -> bool:
     if not py.exists():
         return False
@@ -308,51 +404,68 @@ def valid_venv_python(py: Path) -> bool:
 
 
 def ensure_build_venv(log: Logger, root: Path) -> Path:
-    venv_dir = root / ".buildvenv"
+    venv_dir = build_venv_dir()
     py = venv_dir / "Scripts" / "python.exe"
-    if not valid_venv_python(py):
-        if venv_dir.exists():
-            shutil.rmtree(venv_dir, ignore_errors=True)
-        log.line("Tworzenie odseparowanego srodowiska budowy...")
-        run(log, [sys.executable, "-m", "venv", venv_dir])
+    if valid_venv_python(py):
+        log.line("Srodowisko budowy: OK (wykorzystuje istniejace).")
+        return py
+    if venv_dir.exists():
+        shutil.rmtree(venv_dir, ignore_errors=True)
+    log.line("Tworzenie odseparowanego srodowiska budowy...")
+    run(log, [sys.executable, "-m", "venv", venv_dir])
     return py
 
 
-def install_python_dependencies(log: Logger, py: Path, root: Path):
+def install_python_dependencies(log: Logger, py: Path, root: Path, manifest: dict, manifest_path: Path):
+    sig = deps_signature(root)
+    if manifest.get("_deps") == sig and valid_venv_python(py):
+        log.line("Biblioteki bez zmian - pomijam instalacje zaleznosci.")
+        return
     run(log, [py, "-m", "pip", "install", "--disable-pip-version-check", "--upgrade", "pip", "setuptools", "wheel"])
     run(log, [py, "-m", "pip", "install", "--disable-pip-version-check", "--prefer-binary", "-r", root / "src" / "requirements.txt", PYINSTALLER_REQ])
+    manifest["_deps"] = sig
+    save_manifest(manifest_path, manifest)
 
 
-def build_binaries(log: Logger, py: Path, root: Path) -> Path:
+def build_binaries(log: Logger, py: Path, root: Path, manifest: dict, manifest_path: Path) -> Path:
     build = root / "build"
     dist = build / "dist"
     if build.exists():
         shutil.rmtree(build, ignore_errors=True)
     dist.mkdir(parents=True, exist_ok=True)
-    src = root / "src"
 
-    common = [py, "-m", "PyInstaller", "--noconfirm", "--clean"]
-    run(log, common + [
-        "--onedir", "--windowed", "--name", "CourseArchiver",
-        "--distpath", dist, "--workpath", build / "work_app", "--specpath", build / "spec_app",
-        "--paths", src, "--hidden-import", "session_events",
-        "--collect-all", "mss", "--collect-all", "soundcard", src / "app.pyw",
-    ])
-    run(log, common + [
-        "--onedir", "--console", "--name", "CourseArchiverAgent",
-        "--distpath", dist, "--workpath", build / "work_agent", "--specpath", build / "spec_agent",
-        "--paths", src, "--hidden-import", "session_events",
-        "--collect-all", "playwright", "--collect-all", "faster_whisper", "--collect-all", "ctranslate2",
-        "--collect-all", "tokenizers", "--collect-all", "huggingface_hub", "--collect-all", "imageio_ffmpeg",
-        "--collect-all", "soundcard", "--collect-all", "mss", "--collect-all", "av", src / "agent_generic.py",
-    ])
-    host_dir = dist / "NativeHost"
-    host_dir.mkdir(parents=True, exist_ok=True)
-    run(log, common + [
-        "--onefile", "--console", "--name", "CourseArchiverNativeHost",
-        "--distpath", host_dir, "--workpath", build / "work_host", "--specpath", build / "spec_host",
-        src / "native_host.py",
-    ])
+    cache = build_cache_dir()
+    deps_sig = deps_signature(root)
+    reused, rebuilt = [], []
+
+    for spec in component_specs(root):
+        name = spec["name"]
+        chash = component_hash(spec, deps_sig, APP_VERSION)
+        cached_dir = cache / name
+        produced = dist / spec["dist_subdir"]
+        if manifest.get(name) == chash and (cached_dir / spec["exe"]).exists():
+            log.line(f"Komponent {name}: bez zmian - przywracam z pamieci podrecznej.")
+            if produced.exists():
+                shutil.rmtree(produced, ignore_errors=True)
+            shutil.copytree(cached_dir, produced)
+            reused.append(name)
+            continue
+        log.line(f"Komponent {name}: zmieniony lub nowy - buduje od nowa.")
+        produced.parent.mkdir(parents=True, exist_ok=True)
+        run(log, [py, "-m", "PyInstaller", "--noconfirm", "--clean",
+                  "--distpath", produced.parent if spec["dist_subdir"] != "NativeHost" else produced,
+                  "--workpath", build / f"work_{name}", "--specpath", build / f"spec_{name}"] + list(spec["args"]))
+        if not (produced / spec["exe"]).exists():
+            raise InstallerError(f"Budowa komponentu {name} nie utworzyla pliku: {produced / spec['exe']}")
+        if cached_dir.exists():
+            shutil.rmtree(cached_dir, ignore_errors=True)
+        shutil.copytree(produced, cached_dir)
+        manifest[name] = chash
+        save_manifest(manifest_path, manifest)
+        rebuilt.append(name)
+
+    log.line(f"Komponenty przywrocone z cache: {', '.join(reused) or 'brak'}.")
+    log.line(f"Komponenty przebudowane: {', '.join(rebuilt) or 'brak'}.")
 
     expected = [
         dist / "CourseArchiver" / "CourseArchiver.exe",
@@ -432,6 +545,48 @@ def create_shortcuts(log: Logger, app: Path):
     log.line("Utworzono skroty na Pulpicie i w menu Start.")
 
 
+def deploy_incrementally(log: Logger, dest: Path, sources: dict):
+    """Skopiuj tylko te komponenty, ktore sie zmienily; usun te, ktorych juz nie ma.
+
+    Stan poprzedniego wdrozenia trzymamy w .install_manifest.json (hash drzewa
+    kazdego komponentu). Dzieki temu ponowna instalacja nie kopiuje setek MB,
+    gdy zmienil sie tylko jeden plik EXE.
+    """
+    manifest_path = dest / ".install_manifest.json"
+    previous = load_manifest(manifest_path)
+    current = {}
+    added, updated, unchanged = [], [], []
+
+    for name, source in sources.items():
+        if not source.exists():
+            if name in ("CourseArchiver", "Agent", "NativeHost"):
+                raise InstallerError(f"Brak zbudowanego komponentu do wdrozenia: {source}")
+            continue
+        new_hash = hash_tree(source)
+        current[name] = new_hash
+        target = dest / name
+        if previous.get(name) == new_hash and target.exists():
+            unchanged.append(name)
+            continue
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+            updated.append(name)
+        else:
+            added.append(name)
+        shutil.copytree(source, target)
+
+    # Komponenty obecne wczesniej, ktorych juz nie dostarczamy - usun.
+    removed = []
+    for name in previous:
+        if name not in current and (dest / name).exists():
+            shutil.rmtree(dest / name, ignore_errors=True)
+            removed.append(name)
+
+    save_manifest(manifest_path, current)
+    log.line(f"Dodane: {', '.join(added) or 'brak'}; zaktualizowane: {', '.join(updated) or 'brak'}; "
+             f"bez zmian: {', '.join(unchanged) or 'brak'}; usuniete: {', '.join(removed) or 'brak'}.")
+
+
 def portable_install(log: Logger, root: Path) -> Path:
     """Wdroz aplikacje bez uruchamiania niepodpisanego instalatora EXE.
 
@@ -440,21 +595,17 @@ def portable_install(log: Logger, root: Path) -> Path:
     """
     dist = root / "build" / "dist"
     dest = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Programs" / "Course Archiver & Transcriber"
-    log.line(f"Tryb przenosny: kopiuje aplikacje do {dest}")
-    mapping = {"CourseArchiver": dest / "CourseArchiver", "CourseArchiverAgent": dest / "Agent", "NativeHost": dest / "NativeHost"}
-    for srcname, target in mapping.items():
-        source = dist / srcname
-        if not source.exists():
-            raise InstallerError(f"Brak zbudowanego katalogu: {source}")
-        if target.exists():
-            shutil.rmtree(target, ignore_errors=True)
-        shutil.copytree(source, target)
-    ext_src = root / "src" / "chrome_extension"
-    if ext_src.exists():
-        ext_dst = dest / "ChromeExtension"
-        if ext_dst.exists():
-            shutil.rmtree(ext_dst, ignore_errors=True)
-        shutil.copytree(ext_src, ext_dst)
+    dest.mkdir(parents=True, exist_ok=True)
+    log.line(f"Tryb przenosny: aktualizuje aplikacje w {dest}")
+
+    # Zrodlo -> podkatalog docelowy. Rozszerzenie Chrome bierzemy wprost z src.
+    sources = {
+        "CourseArchiver": dist / "CourseArchiver",
+        "Agent": dist / "CourseArchiverAgent",
+        "NativeHost": dist / "NativeHost",
+        "ChromeExtension": root / "src" / "chrome_extension",
+    }
+    deploy_incrementally(log, dest, sources)
     app = dest / "CourseArchiver" / "CourseArchiver.exe"
     try:
         wire_native_messaging(log, dest)
@@ -489,11 +640,13 @@ def install_final_app(log: Logger, setup: Path, root: Path) -> Path:
 
 
 def cleanup_build(log: Logger, root: Path):
-    for name in ("build", ".buildvenv"):
-        p = root / name
-        if p.exists():
-            log.line(f"Usuwam pliki tymczasowe: {p.name}")
-            shutil.rmtree(p, ignore_errors=True)
+    # Usuwamy tylko wynik biezacej budowy w staging. Srodowisko budowy i cache
+    # komponentow (poza staging, w CourseArchiverBuilder) zostaja, aby kolejne
+    # uruchomienia byly szybkie.
+    p = root / "build"
+    if p.exists():
+        log.line("Usuwam pliki tymczasowe: build")
+        shutil.rmtree(p, ignore_errors=True)
 
 
 def launch_app(log: Logger, app: Path):
@@ -579,13 +732,17 @@ def main() -> int:
         log.line(f"Inno Setup gotowy: {inno}")
 
         stage(log, 5, total, "Przygotowanie aplikacji")
-        # 4.6 zmienia kod GUI i agenta, wiec binaria MUSZA powstac na nowo.
-        # Ponowne uzycie EXE z 4.4/4.5 wgraloby wersje bez poprawki logowania.
+        # Inkrementalnie: srodowisko i biblioteki odtwarzamy tylko przy zmianie
+        # requirements.txt; komponenty budujemy tylko gdy zmienil sie ich kod
+        # lub wersja. Manifest (hash na komponent) pilnuje, ze nie wgramy nigdy
+        # nieaktualnego pliku.
+        manifest_path = build_cache_dir() / "build_manifest.json"
+        manifest = load_manifest(manifest_path)
         py = ensure_build_venv(log, root)
-        install_python_dependencies(log, py, root)
+        install_python_dependencies(log, py, root, manifest, manifest_path)
 
         stage(log, 6, total, "Budowa aplikacji Windows")
-        build_binaries(log, py, root)
+        build_binaries(log, py, root, manifest, manifest_path)
 
         stage(log, 7, total, "Tworzenie jednego instalatora EXE")
         setup = compile_installer(log, inno, root)

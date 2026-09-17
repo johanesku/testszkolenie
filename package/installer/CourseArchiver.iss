@@ -1,5 +1,5 @@
 #define MyAppName "Course Archiver & Transcriber"
-#define MyAppVersion "4.6.0"
+#define MyAppVersion "4.7.0"
 #define MyAppPublisher "Local installation"
 #define MyAppExeName "CourseArchiver.exe"
 #define ExtensionId "dfmedhencldblnhceamhppjklgomoffk"
@@ -24,7 +24,7 @@ SetupLogging=yes
 CloseApplications=yes
 RestartApplications=no
 UninstallDisplayIcon={app}\CourseArchiver\{#MyAppExeName}
-VersionInfoVersion=4.6.0.0
+VersionInfoVersion=4.7.0.0
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}

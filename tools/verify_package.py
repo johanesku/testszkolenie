@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
 # Pliki, których obecności 01_INSTALUJ.cmd pilnuje przed startem instalacji.
 REQUIRED_BY_LAUNCHER = ("bootstrap.py", "worker_install.cmd", "installer/CourseArchiver.iss")
-PACKAGE_TESTS = ("tests/test_package.py", "tests/test_installer_integrity.py", "tests/test_login_flow.py")
+PACKAGE_TESTS = ("tests/test_package.py", "tests/test_installer_integrity.py", "tests/test_login_flow.py", "tests/test_incremental.py")
 
 failures: list[str] = []
 

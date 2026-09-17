@@ -5,7 +5,7 @@ title Course Archiver - instalacja automatyczna
 chcp 65001 >nul 2>nul
 
 set "APPNAME=Course Archiver and Transcriber"
-set "VERSION=4.6.0"
+set "VERSION=4.7.0"
 set "ROOT=%~dp0"
 set "LOGDIR=%LOCALAPPDATA%\CourseArchiverInstaller"
 set "LOG=%LOGDIR%\INSTALL_LOG.txt"
